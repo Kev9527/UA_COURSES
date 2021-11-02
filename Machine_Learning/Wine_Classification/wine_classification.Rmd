@@ -1,0 +1,157 @@
+---
+title: "wine_classification"
+author: "Kaiwen Liu"
+date: "11/1/2021"
+output: html_document
+---
+
+
+```{r}
+# load data
+red <- read.csv("./winequality-red.csv",header = T,sep = ";")
+white <- read.csv("./winequality-white.csv",header = T,sep = ";")
+
+# 1 : red wine , 0 : white wine 
+category <- c(rep(1,dim(red)[1]),rep(0,dim(white)[1]))
+wine <- rbind(red,white)
+
+```
+
+
+## LDA
+```{r}
+# lda cv func
+lda_cv <- function(x,cl,k) {
+  # x : training data
+  # cl : labels
+  # k : number of folds
+  n <- dim(x)[1]
+  # runs 
+  runs <- n %/% k
+  rem <- n %% k
+  
+  preds <- c()
+  # calculate each part
+  for (i in 1:k) {
+  # test sub index
+  s.low <- (i-1)*runs + 1
+  s.high <- i*runs
+  # plus remainder in last run
+  if(i==k){
+    s.high <- i*runs + rem
+  }
+  
+  # test set
+  test.i <- x[s.low:s.high,]
+  # train set
+  train.i <- x[ -s.low:-s.high, ]
+  # train label
+  train.lab.i <- cl[-s.low:-s.high]
+
+  # apply lda 
+  zi <- lda(train.i,grouping = train.lab.i)
+  pred.i <- predict(zi,test.i)$class
+  preds <- append(preds,pred.i)
+  }
+  return(mean(preds != cl))
+}
+
+```
+
+```{r}
+# cv error
+lda_cv(wine,category,10)
+```
+
+
+## KNN
+
+```{r}
+# divide it into training data and test data
+wine_lab <- cbind(wine,category)
+set.seed(123)
+n <- dim(wine_lab)[1]
+test_ind <- sample(1:n,floor(n/5))
+# test and train data with labels
+test_wine_lab <- wine_lab[test_ind,]
+train_wine_lab <- wine_lab[-test_ind,]
+
+# test and train data with labels
+test_wine <- test_wine_lab[,1:12]
+train_wine <- train_wine_lab[,1:12]
+# labels for test and train
+test_labs <- test_wine_lab$category
+train_labs <- train_wine_lab$category
+```
+
+```{r}
+library(class)
+# set knn error result function
+gen_knn_err <- function(k.list,train_data,test_data,train_label,test_label){
+  # return test error list for different k
+  test_err = list()
+  for (ki in k.list) {
+    knn_i_train <- knn(train_data,test_data,train_label,k=ki)
+    knn_i_error <- mean(knn_i_train != test_label)
+    test_err <- append(test_err,knn_i_error)
+  }
+  return(test_err)
+}
+```
+
+```{r}
+k_list <- 1:15
+knn_err <- gen_knn_err(k_list,train_wine,test_wine,train_labs,test_labs)
+plot(k_list,knn_err)
+```
+```{r}
+which.min(knn_err)
+```
+
+
+## Logistic
+
+```{r}
+# logistic regression cv func 
+logistic_cv <- function(x,cl,k) {
+  
+  # x : training data
+  # cl : labels
+  # k : number of folds
+  x <- data.frame(cbind(cl,x))
+  x$cl <- as.factor(x$cl)
+  
+  n <- dim(x)[1]
+  # runs 
+  runs <- n %/% k
+  rem <- n %% k
+
+  preds <- c()
+  
+  for (i in 1:k){
+      # test sub index
+      s.low <- (i-1)*runs + 1
+      s.high <- i*runs
+      # plus remainder in last run
+      if(i==k){
+        s.high <- i*runs + rem
+      }
+      
+      # test set
+      test.i <- x[s.low:s.high,]
+      # train set
+      train.i <- x[ -s.low:-s.high, ]
+      
+      # apply logistic
+      logist.i <- glm(formula(train.i), family = binomial(link = "logit"),maxit = 100, data = train.i)
+      pred.i <- predict(logist.i,test.i)
+      preds <- append(preds,pred.i)
+  }
+  return(mean((preds>0)*1 != cl))
+}
+```
+
+```{r}
+logistic_cv(wine,category,5)
+
+```
