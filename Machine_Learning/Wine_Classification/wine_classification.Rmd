@@ -5,7 +5,7 @@ date: "11/1/2021"
 output: html_document
 ---
 
-
+## load data
 ```{r}
 # load data
 red <- read.csv("./winequality-red.csv",header = T,sep = ";")
@@ -14,12 +14,119 @@ white <- read.csv("./winequality-white.csv",header = T,sep = ";")
 # 1 : red wine , 0 : white wine 
 category <- c(rep(1,dim(red)[1]),rep(0,dim(white)[1]))
 wine <- rbind(red,white)
+```
 
+## preliminary checks
+
+### collinearity 
+```{r}
+# check collinearity 
+cor(wine)
+```
+
+```{r}
+# centering
+wine_cen <- wine - colMeans(wine)
+# cor after centering
+cor(wine_cen)
+```
+
+### variable selsction
+
+```{r}
+library(leaps)
+
+# select optimal model by certain method
+forward_select <- function(X,Y,method){
+  # models : models got from regsubsets
+  # method : methods for choosing best p. ("AIC","BIC")
+  
+  # get models using forward by regsubsets
+  models <- regsubsets(x = X,y = Y,method = "forward")
+
+  # train y_hat for each model
+  y_hat_trained <- function(coefs){
+  # select columns with certain predictor
+  col_i <- colnames(X)[which(coefs[-1])]
+  X_train_i <- X[col_i]
+  # train model with certain predictor
+  fit_lm_i <- lm(Y ~ .,data = X_train_i)
+  return(predict(fit_lm_i,X_train_i))
+  }
+  
+  # get logical map of each model
+  p_mat <- summary(models)$which
+  # RSS of each model
+  rss_i <- summary(models)$rss
+  
+
+  # iterate each model and get train_err and bic
+  trainErrs <- c()
+  # evaluation value  
+  eva_vals <- c()
+  # number of variables
+  ps <- c()
+  # number of sample size
+  n <- dim(X_train)[1]
+  # number of models
+  num_models <- dim(summary(models)$which)[1]
+
+  # func for different methods
+  evaluate_mehtod_func <- function(){}
+  if(method == "AIC"){
+    evaluate_mehtod_func <- function(n,trainErr_i,pi){
+      return(n*log(trainErr_i) + 2*pi)
+    }
+  }else if(method == "BIC"){
+    evaluate_mehtod_func <- function(n,trainErr_i,pi){
+      return(n*log(trainErr_i) + pi*log(n))
+    }
+  }else{
+    message("Method input error!")
+    return(NULL)
+  }
+  # iterate to get each models evaluation error
+for (i in 1:num_models){
+  pi <- sum(p_mat[i,]) 
+  y_i <- y_hat_trained(p_mat[i,])
+  trainErr_i <- mean((y_i - Y)^2)
+  trainErrs <- append(trainErrs,trainErr_i)
+  eva <- evaluate_mehtod_func(n,trainErr_i,pi)
+  eva_vals <- append(eva_vals, eva)
+  ps <- append(ps,pi-1)
+}
+  
+  results <- list(num_variables = ps, models = models,MSEs = trainErrs,method_res = eva_vals)
+  return(results)
+  
+}
+
+
+# bic_table <- data.frame(t(rbind(ps,trainErrs,bics)));bic_table
+# plot(bic_table$ps,bic_table$bics,xlab = "number of variables",ylab = "BIC")
+```
+
+
+```{r}
+forward_results <- forward_select(wine,category,"AIC")
+
+# model after forward selection 
+opt_model <- which.min(forward_results$method_res)
+coef <- summary(forward_results$models)$which[opt_model,][-1]
+opt_vars <- names(subset(coef,coef==T))
+```
+
+
+
+```{r}
+which.min(forward_results$method)
+summary(forward_results$models)
 ```
 
 
 ## LDA
 ```{r}
+library(MASS)
 # lda cv func
 lda_cv <- function(x,cl,k) {
   # x : training data
@@ -60,9 +167,15 @@ lda_cv <- function(x,cl,k) {
 
 ```{r}
 # cv error
+# full model
 lda_cv(wine,category,10)
 ```
 
+```{r}
+# model after forward selection
+wine_opt <- wine[,match(opt_vars,colnames(wine))]
+lda_cv(wine_opt,category,10)
+```
 
 ## KNN
 
@@ -155,3 +268,5 @@ logistic_cv <- function(x,cl,k) {
 logistic_cv(wine,category,5)
 
 ```
+
+
