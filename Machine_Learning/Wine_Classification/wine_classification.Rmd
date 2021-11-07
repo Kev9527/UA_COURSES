@@ -5,7 +5,7 @@ date: "11/1/2021"
 output: html_document
 ---
 
-## load data
+## Load Data
 ```{r}
 # load data
 red <- read.csv("./winequality-red.csv",header = T,sep = ";")
@@ -16,9 +16,42 @@ category <- c(rep(1,dim(red)[1]),rep(0,dim(white)[1]))
 wine <- rbind(red,white)
 ```
 
-## preliminary checks
+## Preliminary Checks
 
-### collinearity 
+### Normality
+
+#### 1. normality plot
+
+```{r}
+# for red wine
+# plot_hist <- function(data){
+#   hist(scale(data))
+# }
+# plot_hist(red$fixed.acidity)
+# plot_hist(red$quality)
+# plot_hist(red$volatile.acidity)
+# plot_hist(red$chlorides)
+# plot_hist(red$residual.sugar)
+# plot_hist(red$total.sulfur.dioxide)
+```
+
+#### 2.Shapiro Wilk test for normality
+```{r}
+sha_tests <- c()
+for(i in 1:dim(red)[2]){
+  sha_tests <- append(sha_tests,shapiro.test(red[,i])$p.value)
+}
+
+# an approximate p-value for the test. This is said in Royston (1995) to be adequate for p.value < 0.1.
+which(sha_tests >= 0.1)
+```
+
+
+
+
+### Collinearity 
+
+#### Collinearity of raw data
 ```{r}
 # check collinearity 
 cor(wine)
@@ -26,7 +59,7 @@ cor(wine)
 
 ```{r}
 # centering
-wine_cen <- wine - colMeans(wine)
+wine_cen <- scale(wine,center=T,scale = F)
 # cor after centering
 cor(wine_cen)
 ```
@@ -67,7 +100,7 @@ forward_select <- function(X,Y,method){
   # number of variables
   ps <- c()
   # number of sample size
-  n <- dim(X_train)[1]
+  n <- dim(X)[1]
   # number of models
   num_models <- dim(summary(models)$which)[1]
 
@@ -125,6 +158,8 @@ summary(forward_results$models)
 
 
 ## LDA
+
+### LDA function using CV
 ```{r}
 library(MASS)
 # lda cv func
@@ -165,12 +200,15 @@ lda_cv <- function(x,cl,k) {
 
 ```
 
+
+### apply LDA with raw data
 ```{r}
 # cv error
 # full model
 lda_cv(wine,category,10)
 ```
 
+### apply LDA with centering data and forwarded selected variables
 ```{r}
 # model after forward selection
 wine_opt <- wine[,match(opt_vars,colnames(wine))]
