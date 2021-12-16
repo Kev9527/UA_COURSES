@@ -1,0 +1,1174 @@
+---
+title: "MATH 574M Final Project Report"
+author: "Kaiwen Liu"
+date: "12/14/2021"
+output:
+  pdf_document:
+    toc: yes
+    latex_engine: xelatex
+  html_document:
+    toc: yes
+urlcolor: blue
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Table of Contents
+
+# Introduction
+
+Dry beans (Phaseolus Vulgaris) are one of the world's longest-cultivated crops. They are rich in protein, fiber, and various micronutrients and are widely consumed throughout the world. In some areas like Turkey and Asian Countries, dry beans are usually cultivated in the form of populations containing mixed species of seeds. It is reported that using bean seeds containing mixed species will decrease the market value and it is time-consuming and costly for bean producers to classify beans by manpower[[1]][6 References]. Therefore, the purpose of analyzing this data set is to build suitable models to classify seven beans from a mixed population as precise as possible.\
+
+In this report, six machine learning methods were applied to address the problem, including linear discriminant analysis, logistic regression, k nearest neighbor (KNN), support vector machine (SVM), decision tree and random forest. SVM achieves the highest accuracy in classifying seven different types of beans. This model can help dry beans producers to achieve uniform dry beans.
+
+## Dara Set Information
+This data set consists of the morphological information extracted from digital images of different types dry beans. 
+The features includes: 
+By the botanical characteristic of dry beans, they are classified as seven different types (Barbunya, Battal, Bombay, Calı, Dermason, Horoz, Tombul, Selanik and Seker).
+
+The dataset can be found in [UCI](https://archive.ics.uci.edu/ml/datasets/Dry+Bean+Dataset).
+
+
+
+# 1 Preparing Environment and Loading Data
+
+## 1.1 Import Packages
+```{r, message=FALSE,warning=FALSE}
+library(readxl)
+library(class)
+library(moments)
+library(car)
+library(ggplot2)
+library(reshape2)
+library(MASS)
+library(e1071)   
+library(caret)
+library(nnet)
+library(tree)
+library(randomForest)
+library(maboost)
+library(knitr)
+library(KernelKnn)
+```
+
+## 1.2 Load Dataset
+```{r}
+beans <- data.frame(read_excel("./DryBeanDataset/Dry_Bean_Dataset.xlsx"))
+```
+
+
+```{r,echo=F}
+final_results <- data.frame()
+```
+
+# 2 Exploratory Data Analysis
+
+## 2.1 Dataset Structure
+In order to have a comprehensive view of the dataset and make it convenient for future use, I wrote a function to show the general characteristic of the data.
+
+```{r}
+data_str <- function(df){
+  rownames <- colnames(df)
+  types <- c()
+  nas <- c()
+  na_ratio <- c()
+  means <- c()
+  stds <- c()
+  skewness <- c()
+  kurtosis <- c()
+  
+  # type of each predictor
+  for(p in 1:dim(df)[2]){
+    if(typeof(df[,p]) == "character"){
+      sk <- NA
+      ku <- NA
+      me <- NA
+      st <- NA
+    }
+    else{
+      sk <- round(skewness(df[,p]),6)
+      ku <- round(kurtosis(df[,p]),6)
+      me <- round(mean(df[,p]),6)
+      st <- round(sd(df[,p]),6)
+    }
+      types <- append(types,typeof(df[,p]))
+      nas <- append(nas,sum(is.na(df[,p])))
+      na_ratio <- append(na_ratio,nas[p]/dim(df)[1])
+      
+      skewness <- append(skewness,sk)
+      kurtosis <- append(kurtosis,ku)
+      means <- append(means,me)
+      stds <- append(stds,st)
+  }
+  
+  res <- data.frame(cbind(rownames,types,nas,na_ratio,means,stds,skewness,kurtosis))
+  colnames(res) <- c("","types","NA","NA_ratio","mean","std","skewness","kurtosis")
+  return(res)
+}
+
+```
+
+```{r}
+res <- data_str(beans);res
+```
+
+
+## 2.2 Missing Data Check and Cleaning
+We can notice that there is no missing value in this data set.
+
+## 2.3 Understanding Features
+
+* Area (A): 
+The area of a bean zone and the number of pixels within its boundaries.
+
+* Perimeter (P): 
+Bean circumference is defined as the length of its border.
+
+* Major axis length (L): 
+The distance between the ends of the longest line that can be drawn from a bean.
+
+* Minor axis length (l): 
+The longest line that can be drawn from the bean while standing perpendicular to the main axis.
+
+* Aspect ratio (K): 
+Defines the relationship between L and l.
+
+* Eccentricity (Ec): 
+Eccentricity of the ellipse having the same moments as the region.
+
+* Convex area (C): 
+Number of pixels in the smallest convex polygon that can contain the area of a bean seed.
+
+* Equivalent diameter (Ed): 
+The diameter of a circle having the same area as a bean seed area: $\sqrt{4A/\pi}$
+
+* Extent (Ex): 
+The ratio of the pixels in the bounding box to the bean area.
+
+* Solidity (S): 
+Also known as convexity. The ratio of the pixels in the convex shell to those found in beans.
+
+* Roundness (R): 
+Calculated with the following formula: $(4\pi A/P^2)$
+
+* Compactness (CO): 
+Measures the roundness of an object: $Ed/L$
+
+* ShapeFactor1 (SF1) : $\frac{L}{A}$
+
+* ShapeFactor2 (SF2) : $\frac{A}{L^3}$
+
+* ShapeFactor3 (SF3) : $\frac{A}{(L/2)(L/2)\pi}$
+
+* ShapeFactor4 (SF4) : $\frac{A}{(L/2)(l/2)\pi}$
+
+* Class (Seker, Barbunya, Bombay, Cali, Dermosan, Horoz and Sira)
+
+
+These morphological features are extracted from images captured by a computer vision system[[2]][6 References]. There are papers about wheat kernel morphological variation pointing out the above features have significant influence to similar grain classification problems like rice and wheat grains[[3]][6 References]. 
+
+## 2.4 Check for the Correlation 
+
+Scale data
+```{r}
+b.s <- scale(beans[-17])
+```
+
+```{r}
+cor_heatmap <- function(mydata){
+  # Compute the correlation matrix
+  cormat <- round(cor(mydata),2)
+  
+  # Get lower triangle of the correlation matrix
+  cormat[upper.tri(cormat)] <- NA
+  
+  upper_tri <- cormat
+  # Finished correlation matrix heatmap
+  melted_cormat <- melt(upper_tri, na.rm = TRUE)
+  
+  ggplot(data = melted_cormat, aes(Var1, Var2, fill = value))+
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "#267373", high = "#bf5940", mid = "white",
+     midpoint = 0, limit = c(-1,1), space = "Lab",
+     name="Pearson\nCorrelation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1,
+    size = 12, hjust = 1))+
+    coord_fixed()
+}
+```
+
+Correlation Heat Map
+```{r}
+cor_heatmap(b.s)
+```
+
+
+# 3 Data Engineering 
+
+## Normality Check
+The first normality plot is for the area predictor and we can see it is obvious not normal. Even after the box-cox transformation, the plot is still not normal. 
+```{r}
+test <- beans[,1]
+a1 <- qqPlot(test)
+bc <- boxcox(test~1,lambda = seq(-5,1,0.1),plotit = TRUE)
+lambda <- bc$x[which.max(bc$y)]
+trans <- bcPower(test,lambda)
+a2 <- qqPlot(trans)
+```
+
+
+# 4 Modeling
+
+## 4.1 Linear Discriminant Analysis (LDA)
+
+#### Defination
+
+Linear discriminant analysis (LDA) is a method used in statistics and other fields, to find a linear combination of features that characterizes or separates two or more classes of objects or events. The resulting combination may be used as a linear classifier, or, more commonly, for dimensionality reduction before later classification.\
+LDA works when the measurements made on independent variables for each observation are continuous quantities, which the data set here satisfies.\
+The main idea of multi-class LDA is to find a linear combinations of coefficients vector that maximize the ratio of the between-class covariance scattering to the within-class covariance scattering, which is an optimization problem that can be written as:
+$$
+max_w \frac{w^TS_bw}{w^TS_ww}
+$$
+The solution is given by solving $S_bw = \lambda S_ww$.
+
+$S_b$: between-class scatter matrix.\
+$S_w$: within-class scatter matrix.\
+Generally, at most m - 1 generalized eigenvectors are useful to discriminate between m classes.
+
+
+#### Assumption
+There are two important assumptions LDA make: 1. assume each class density is multivariate Gaussian and 2. they have equal covariance.\
+
+
+
+#### Advantages
+
+LDA and PCA are similar in the sense that both of them reduce the data dimensions but LDA provides better separation between groups of experimental data compared to PCA. This is because LDA models the differences between the classes of data, whereas PCA does not take account of these differences.\
+
+#### Limitations
+LDA may not have ideal performance if the assumptions of LDA are not met.
+
+### Sampling
+Train 80%, test 20%.
+```{r}
+set.seed(723)
+ind.train <- sample(1:nrow(beans),round(0.8*nrow(beans)))
+lda.train <- beans[ind.train,]
+lda.test <- beans[-ind.train,]
+```
+
+### Imbalanced Data
+The below pie chart shows the imbalanced samples in different bean types. "BOMBAY" has the smallest portion in this dataset. It is reported that imbalanced dataset have negative effect on the performance of applying LDA according the paper (Jigang Xie∗, Zhengding Qiu)[[4]][6 References].\
+There are several sampling methods to solve the imbalanced problem.
+We can use random oversampling methods according to the paper[[4]][6 References] or stratified sampling. Considering using oversampling may introduce new problems, stratified sampling method is a more simple and easy choice.\
+
+
+
+#### Pie Charts in types
+```{r}
+# seperate data into classes
+SE <- subset(lda.train,Class == "SEKER")
+BA <- subset(lda.train,Class == "BARBUNYA")
+BO <- subset(lda.train,Class == "BOMBAY")
+CA <- subset(lda.train,Class == "CALI")
+HO <- subset(lda.train,Class == "HOROZ")
+SI <- subset(lda.train,Class == "SIRA")
+DE <- subset(lda.train,Class == "DERMASON")
+sep.samples <- list(SE,BA,BO,CA,HO,SI,DE)
+
+# seperate data into classes
+pie.se <- dim(SE)[1]
+pie.ba <- dim(BA)[1]
+pie.bo <- dim(BO)[1]
+pie.ca <- dim(CA)[1]
+pie.ho <- dim(HO)[1]
+pie.si <- dim(SI)[1]
+pie.de <- dim(DE)[1]
+num_samples <- c(pie.se,pie.ba,pie.bo,pie.ca,pie.ho,pie.si,pie.de)
+pie.labs <- c("SEKER","BARBUNYA","BOMBAY","CALI","HOROZ","SIRA","DERMASON")
+ggdata <- data.frame(X = pie.labs,Y = num_samples)
+
+# plot pie chart
+piechart <- ggplot(data=ggdata,aes(x="", y=Y, fill=X)) +
+  geom_bar(width=1, stat="identity") +
+  coord_polar("y", start=0) +
+  geom_text(aes(label = paste0(Y,
+                               " (",
+                               scales::percent(Y / sum(Y)),
+                               ")")),
+            position = position_stack(vjust = 0.5)) +
+  
+  xlab("") +
+  ylab("Value") +
+  theme(axis.text.x=element_blank(),axis.ticks.x=element_blank())
+
+piechart
+```
+
+
+### Stratified Sampling
+By using stratified, it is guaranteed that certain percent of the samples of each class will be included into the training data.
+```{r}
+# sampling
+all <- lda.train
+
+sep.samples <- list(SE,BA,BO,CA,HO,SI,DE)
+
+set.seed(12)
+ind <- sample(1:dim(all)[1])
+
+# folds 
+folds <- 10
+# result
+stratified.samples <- data.frame()
+# used for update
+resp <- sep.samples
+# iterate through data that has been classified by type for k(folds) times
+# get a certain portion from each class population and then update it 
+for(k in 1:folds){
+  stratified.samples.k <- data.frame()
+  
+  for(t in 1:length(resp)){
+    if( k == folds){
+       # for the last run, get the rest data
+       str.samples.i <- as.data.frame(resp[t])
+       stratified.samples.k <- rbind(stratified.samples.k,str.samples.i)
+       resp[t] <- list(data.frame())
+  }else{
+      resp.df <- as.data.frame(resp[t])
+      set.seed(2010)
+      # number of original class samples
+      s.i <- dim(data.frame(sep.samples[t]))[1]
+      n.i <- dim(data.frame(resp[t]))[1]
+      ind.i <- sample(1:n.i,floor(s.i/folds))
+      str.samples.i <- resp.df[ind.i,]
+      stratified.samples.k <- rbind(stratified.samples.k,str.samples.i)
+      resp[t] <- list(resp.df[-ind.i,])
+      
+  }
+    }
+  set.seed(2021)
+  # random sample in each fold
+  ind.k <- sample(1:dim(stratified.samples.k)[1],dim(stratified.samples.k)[1])
+  stratified.samples <- rbind(stratified.samples,stratified.samples.k[ind.k,])
+}
+
+```
+
+
+
+### Apply LDA
+Below is a function by which we can apply, say a 5 fold cross validation LDA method on a data set.
+```{r}
+# lda cv func
+lda_cv <- function(x,cl,k) {
+  # x : training data
+  # cl : labels
+  # k : number of folds
+  n <- dim(x)[1]
+  cl <- as.factor(unlist(cl))
+  
+  # runs 
+  runs <- n %/% k
+  rem <- n %% k
+  
+  preds <- c()
+  # calculate each part
+  for (i in 1:k) {
+  # test sub index
+  s.low <- (i-1)*runs + 1
+  s.high <- i*runs
+  # plus remainder in last run
+  if(i==k){
+    s.high <- i*runs + rem
+  }
+  
+  # test set
+  test.i <- x[s.low:s.high,]
+  # train set
+  train.i <- x[ -s.low:-s.high, ]
+  # train label
+  train.lab.i <- cl[-s.low:-s.high]
+  
+  # apply lda 
+  zi <- lda(train.i,grouping = train.lab.i)
+  pred.i <- predict(zi,test.i)$class
+  preds <- append(preds,pred.i)
+  }
+  return(mean(preds != cl))
+}
+```
+
+
+#### Before Stratified
+```{r}
+lda_cv(lda.train[,-17],lda.train[17],10)
+```
+
+
+#### After Stratified
+```{r}
+lda_cv(stratified.samples[,-17],stratified.samples[17],10)
+```
+
+The error rate improved a little after applying stratified sampling.
+
+### Prediction
+
+```{r}
+# lda model
+lda.train.model <- lda(lda.train[,-17],grouping = as.factor(lda.train[,17]));lda.train.model
+```
+
+There are 6 discriminant functions for classification. The first 3 has covered 86.2%, percentage separation achieved by each discriminant function. It is not ideal mainly because the data does not satisfy the LDA assumptions.
+
+```{r}
+# training error
+pred.lda.train <- predict(lda.train.model,lda.train[,-17])$class
+lda.train.err <- mean(pred.lda.train != lda.train[,17]);lda.train.err
+
+# test error
+pred.lda.test <- predict(lda.train.model,lda.test[,-17])$class
+lda.test.err <- mean(pred.lda.test != lda.test[,17]);lda.test.err
+
+```
+
+Train error: `r { lda.train.err }`, test error: `r {lda.test.err }`.
+
+
+### Confusion Matrix
+```{r}
+# confusion matrix
+lda.cm <- caret::confusionMatrix(pred.lda.test,as.factor(lda.test[,17]));lda.cm
+```
+
+
+```{r,echo=F}
+lda.res <- c(lda.train.err,lda.test.err)
+```
+
+
+
+
+
+## 4.2 Logistic Regression
+
+### Definition
+
+logistic regression is a model that is used to model the posterior probabilities of the K classes via linear functions in x while at the same time ensuring they sun to one and remain in [0,1]. The model has the form:
+
+$$
+Pr(G=k|X=x) = \frac{exp(\beta_{k0} + \beta_k^Tx)}{1 + \sum_{l=1}^{K-1}exp(\beta_{l0} + \beta_l^Tx )}, k = 1,..., K-1
+$$
+
+Logistic regression models are usually ﬁt by maximum likelihood, using the conditional likelihood of G given X.
+
+$$
+L(\theta) = \sum_{i-1}^Nlogp_{g_i}(x_i;\theta),
+$$
+where $p_k(x_i;\theta) = Pr(G=k|X=x_i;\theta).$
+
+#### Advantages 
+
+It makes no assumptions about distributions of classes in feature space.\
+Good accuracy for many simple data sets and it performs well when the data set is linearly separable.\
+Logistic regression is less inclined to over-fitting in low dimension data.\
+It can interpret model coefficients as indicators of feature importance.
+
+#### Limitations
+The major limitation of Logistic Regression is the assumption of linearity between the dependent variable and the independent variables.\
+It can only be used to predict discrete functions.\
+
+
+
+### Apply Multinomial Logistic Regression
+
+#### Sampling
+Take 20% data for testing, 80% for training.
+```{r}
+set.seed(7105)
+# sampling
+number_test <- floor(dim(beans)[1]/5)
+index.list <- 1:dim(beans)[1]
+sample.index.test <- sample(index.list,number_test)
+sample.index.train <- index.list[-sample.index.test]
+sample.index.train <- sample(sample.index.train,length(sample.index.train))
+
+lg.sample.test <- beans[sample.index.test,]
+lg.sample.train <- beans[sample.index.train,]
+```
+
+
+#### Prediction
+```{r}
+lg.model <- multinom(Class ~ ., data = lg.sample.train)
+# training error
+lg.pred <- predict(lg.model,lg.sample.train[,-17])
+lg.train.error <- mean(lg.pred != as.factor(lg.sample.train[,17]));lg.train.error
+# test error
+lg.pred <- predict(lg.model,lg.sample.test[,-17])
+lg.test.error <- mean(lg.pred != as.factor(lg.sample.test[,17]));lg.test.error
+
+```
+
+The training error is 0.07227477 and the test error is 0.07861866
+
+```{r,echo=F}
+logisticregression.res <- c(lg.train.error,lg.test.error)
+```
+
+
+## 4.3 KNN 
+
+### Definition
+The k-nearest neighbors algorithm (k-NN) is a non-parametric classification method. In k-NN classification, the output is a class membership. An object is classified by a plurality vote of its neighbors, with the object being assigned to the class most common among its k nearest neighbors.
+
+#### Advantages
+It does not make any strict assumptions about the data.\
+It does not learn anything in the training period. It just stores the training data set and learns from it only at the time of making real time predictions. 
+
+#### Limitations
+KNN is sensitive to the local data structure. The larger class tends to dominate the prediction, as their examples show up more frequently in the neighborhood.\
+We need to do feature scaling before applying KNN algorithm to any data set due to curse of dimensionality.
+
+A function to calculate test error using knn.
+```{r}
+# set knn error result function
+get_knn_err <- function(k.list,train_data,test_data,train_label,test_label){
+  # return test error list for different k
+  test_err = list()
+  for (ki in k.list) {
+    knn_i_train <- knn(train_data,test_data,train_label,k=ki)
+    knn_i_error <- mean(knn_i_train != test_label)
+    test_err <- append(test_err,knn_i_error)
+  }
+  return(test_err)
+}
+```
+
+### Apply KNN
+
+#### Sampling
+Take 20% data for testing, 80% for training.
+```{r}
+set.seed(2031)
+# sampling
+number_test <- floor(dim(beans)[1]/5)
+number_tune <- floor(dim(beans)[1]/5)
+
+index.list <- 1:dim(beans)[1]
+
+sample.index.test <- sample(index.list,number_test)
+index.list.test <- index.list[-sample.index.test]
+
+sample.index.tune <- sample(index.list.test,number_tune)
+index.list.tune <- index.list.test[-sample.index.tune]
+
+sample.index.train <- index.list.tune
+
+k.sample.test <- beans[sample.index.test,]
+k.sample.tune <- beans[sample.index.tune,]
+k.sample.train <- beans[sample.index.train,]
+
+# train data
+k.train <- k.sample.train[,-17]
+k.train.lab <- k.sample.train[,17]
+# test data
+k.test <- k.sample.test[,-17]
+k.test.lab <- k.sample.test[,17]
+```
+
+#### Scale 
+```{r}
+k.train.scaled <- scale(k.train,center=T,scale = T)
+k.test.scaled <- scale(k.test,center=T,scale = T)
+```
+
+#### Tuning for k
+```{r}
+k.list <- 1:30
+set.seed(2089)
+# tune error
+knn.test.errs <- get_knn_err(k.list,k.train.scaled,k.test.scaled,k.train.lab,k.test.lab)
+plot(k.list,knn.test.errs)
+```
+
+```{r}
+# the best k
+knn.test.errs[which.min(knn.test.errs)];which.min(knn.test.errs)
+# 10 best k's
+k10th <- sort(as.numeric(knn.test.errs))[10]
+# best 10 k's
+k10 <- which(knn.test.errs <= k10th );k10
+```
+
+
+#### KNN Prediction
+```{r}
+# train error
+knn.train.err <- get_knn_err(k10[1],k.train.scaled,k.train.scaled,k.train.lab,k.train.lab);knn.train.err
+# prediction error
+knn.pred.err <- get_knn_err(k10[1],k.train.scaled,k.test.scaled,k.train.lab,k.test.lab);knn.pred.err
+```
+Train error: 0.05734314, Test error: 0.07861866.
+
+
+### Apply Weighted KNN
+Considering the impact of imbalanced data on majority vote decision, we will take into account the distance from x to each of the k nearest neighbors.  
+
+```{r eval=FALSE, include=FALSE}
+# returns the predicted label by weighted knn
+# train - matrix, observations, target column excluded
+# test.i - vector, example to be classified
+# k - number of neighbors to be used
+weighted_knn_predict <- function(train,train_label,test.i,k){
+    # calculate distances between the target point and each example in the train 
+    dist_method <- "euclidean"
+    dists = as.matrix(dist(rbind(test.i,train),method = dist_method))[-1,1]
+    # sort the distances and get the indices of this sorting
+    sorted_dists = sort(dists, index.return = T)$ix
+    # choose indices of k nearest
+    k_nearest = sorted_dists[1:k]
+    # weights of k neighbors
+    wt <- 1/dists[1:k]
+    
+    # k nearest data data frame
+    # column: label + dist + weight
+    # row: k points
+    k.df <- cbind(train_label[k_nearest],dists[k_nearest],wt)
+    # unique labels
+    labels.ubique <- unique(train_label)
+    # calculate vote by distance weight
+    votes_labels <- data.frame(t(rep(0,length(labels.ubique))))
+    colnames(votes_labels) <- labels.ubique
+    
+    # iterate k.df find the weight of the in label
+    for(i in 1:nrow(k.df)){
+      for(k in colnames(votes_labels)){
+        if(k == k.df[i,1]){
+           votes_labels[k] <- as.numeric(k.df[i,3]) + votes_labels[k]
+        }
+      }
+    }
+    pred.i <- colnames(votes_labels)[which.max(votes_labels)]
+    return(pred.i)
+}
+```
+
+
+
+
+```{r eval=FALSE, include=FALSE}
+# get knn error result function
+get_weighted_knn_err <- function(k.list,train_data,test_data,train_label,test_label){
+  # return test error list for different k
+  test_err = list()
+  for (ki in k.list) {
+    knn_i_pred <- apply(test_data,1,function(x) weighted_knn_predict(train_data,train_label,x,ki))
+    knn_i_error <- mean(knn_i_pred != test_label)
+    test_err <- append(test_err,knn_i_error)
+  }
+  return(test_err)
+}
+```
+
+Using accuracy as a criterion for choosing optimal k is not stable, it is suggested to do a K-fold cross validation to tune the model.
+
+```{r}
+weighted_knn_cv_err <- function(K,x,cl,k,method){
+  # K : number of folds
+  # x : training data
+  # cl : labels
+  # k.list : a list of k to be tuned
+  n <- nrow(x)
+  # runs 
+  runs <- n %/% K
+  rem <- n %% K
+  
+  preds <- c()
+  # calculate each part
+  for (i in 1:K) {
+  # test sub index
+  s.low <- (i-1)*runs + 1
+  s.high <- i*runs
+  # plus remainder in last run
+  if(i==K){
+    s.high <- i*runs + rem
+  }
+  
+  # test set
+  test.i <- x[s.low:s.high,]
+  # train set
+  train.i <- x[ -s.low:-s.high, ]
+  # train label
+  train.lab.i <- cl[-s.low:-s.high]
+
+  # apply weighted knn
+  w.knn.pred.matrix <- KernelKnn(x,y=cl,k=k,method = method,Levels = 1:7)
+  w.knn.pred <- apply(w.knn.pred.matrix,1,FUN = function(x) which.max(x) )
+
+  # knn_i_pred <- apply(test.i,1,function(x) weighted_knn_predict(train.i,train.lab.i,x,k))
+  preds <- append(preds,w.knn.pred)
+  }
+  return(mean(preds != cl))
+}
+
+```
+
+
+
+```{r eval=FALSE, include=FALSE}
+w.k.train.scaled <- cbind(data.frame(scale(k.sample.train[,-17])),Class = k.sample.train[,17])
+# set.seed(1345)
+# k.tune.ind <- sample(1:nrow(k.train.scaled.i),round(nrow(k.train.scaled.i))*0.2)
+# # train data
+# k.tune.train <- k.train.scaled.i[-k.tune.ind,]
+# # test data
+# k.tune <- k.train.scaled.i[k.tune.ind,]
+k.list <- 5
+# nunmber of cross validation
+K_fold <- 5
+# sample training data
+set.seed(1243)
+n <- round(nrow(w.k.train.scaled)*0.5)
+ind <- sample(1:nrow(w.k.train.scaled),n)
+w.k.train <- w.k.train.scaled[ind,]
+
+# errors for k's
+wknn_train_err <- lapply(k.list,FUN = function(k) weighted_knn_cv_err(K_fold,w.k.train[,-17],w.k.train[,17],k)) 
+
+wknn_train_err[which.min(wknn_train_err)];which.min(wknn_train_err)
+w.best.k <- which.min(wknn_train_err)
+plot(k.list,wknn_train_err)
+```
+
+
+Transfer Label To Numeric
+```{r}
+w.k.train.scaled <- cbind(data.frame(scale(k.sample.train[,-17])),Class = k.sample.train[,17])
+w.k.test.scaled <-  cbind(data.frame(scale(k.sample.test[,-17])),Class = k.sample.test[,17])
+# "SEKER"    "BARBUNYA" "BOMBAY"   "CALI"     "HOROZ"    "SIRA"     "DERMASON"
+#  1           2           3         4          5          6           7
+labels <- c("SEKER", "BARBUNYA", "BOMBAY",  "CALI", "HOROZ" ,  "SIRA","DERMASON")
+num_lab_table <- rbind(labels,1:length(labels))
+for(i in 1:7){
+  ind.i.train <- which(w.k.train.scaled[,17] == labels[i])
+  ind.i.test <- which(w.k.test.scaled[,17] == labels[i])
+  w.k.train.scaled[ind.i.train,17] <- i
+   w.k.test.scaled[ind.i.test,17] <- i
+}
+
+
+
+w.k.train.scaled[,17] <- as.numeric(w.k.train.scaled[,17] )
+w.k.test.scaled[,17] <- as.numeric(w.k.test.scaled[,17] )
+```
+
+
+```{r eval=FALSE}
+# w.knn.pred.matrix <- KernelKnn(w.k.train.scaled[,-17],y=w.k.train.scaled[,17],k=5,method = "euclidean",Levels = 1:7)
+
+n <- nrow(round(w.k.train.scaled)*0.1)
+ind.train <- sample(1:n,n)
+
+k.list <- 6:10
+# nunmber of cross validation
+K_fold <- 5
+# list of methods of distance
+method.list <- c('euclidean', 'manhattan') 
+
+w.knn.cv.errs <- c()
+ta.knn.df <- data.frame(matrix(0,length(method.list),length(k.list) ))
+row.names(ta.knn.df) <- method.list
+colnames(ta.knn.df) <- k.list
+
+for(m in 1:length(method.list)){
+  for(k in 1:length(k.list)){
+      err.i <- weighted_knn_cv_err(K_fold,w.k.train.scaled[ind.train,-17],w.k.train.scaled[ind.train,17],k.list[k],method.list[m]) 
+  ta.knn.df[m,k] <- err.i
+    }
+  }
+
+```
+
+```{r eval=FALSE}
+plot(k.list,ta.knn.df[1,],main = "method = euclidean")
+best.k1 <- which.min(ta.knn.df[1,])
+
+plot(k.list,ta.knn.df[2,],main = "method = manhattan")
+best.k2 <- which.min(ta.knn.df[2,])
+```
+
+By trying two distance metrics, it turns out there there are little difference.
+The optimal is 8.
+
+#### Weighted KNN Prediction
+
+```{r}
+# train error
+w.knn.pred.matrix <- KernelKnn(w.k.train.scaled[,-17],y=w.k.train.scaled[,17],k=8,method = "euclidean",Levels = 1:7)
+w.knn.train.pred <- apply(w.knn.pred.matrix,1,FUN = function(x) which.max(x) )
+w.knn.train.err <-  mean(w.knn.train.pred != w.k.train.scaled[,17])
+```
+
+```{r}
+# test error
+w.knn.pred.matrix.test <- KernelKnn(w.k.train.scaled[,-17],TEST_data = w.k.test.scaled[,-17] ,y=w.k.train.scaled[,17],k=8,method = "euclidean",Levels = 1:7)
+w.knn.test.pred <- apply(w.knn.pred.matrix.test,1,FUN = function(x) which.max(x) )
+w.knn.test.err <-  mean(w.knn.test.pred != w.k.test.scaled[,17])
+```
+
+
+### Confusion Matrix
+```{r}
+pred.knn <- knn(k.train.scaled,k.test.scaled,k.train.lab,k=14)
+knn.cm <- caret::confusionMatrix(pred.knn,as.factor(k.test.lab));knn.cm
+```
+
+```{r,echo=F}
+knn.res <- c(knn.train.err,knn.pred.err)
+```
+
+## 4.4 Support Vector Machine (SVM)
+
+### Definition
+
+Support vector machine tries to construct hyperplanes that maximize the margin between two or more classes.
+
+#### Advantages
+It is efficient in solving high dimensional problems.
+
+#### Limitations
+When data sample is large, SVM is computationally expensive.\
+SVM does not perform very well, when the data set has more noise.
+
+
+### Sampling
+25% data for testing, 75% for training and tuning.
+```{r}
+# sampling
+n <- dim(beans)[1]
+p <- dim(beans)[2]
+size_test <- floor(n/4)
+
+set.seed(2031)
+sample.index <- sample(1:n,size_test)
+# train data
+s.sample.train <- beans[-sample.index,-17]
+s.sample.train.class <- beans[-sample.index,17]
+# test data
+s.sample.test <- beans[sample.index,-17]
+s.sample.test.class <- beans[sample.index,17]
+```
+
+### Scaling
+```{r}
+# train data
+s.sample.train <- scale(s.sample.train)
+# test data
+s.sample.test <- scale(s.sample.test)
+```
+
+### Apply SVM
+
+#### Gaussian Kernel
+```{r eval=FALSE, include=FALSE}
+# radial kernel
+ranges_radial <- list(cost = 10^(1:3),
+                 gamma =  10^(-3:-1)
+                 )
+tune.out.radial <- e1071::tune(svm,as.matrix(s.sample.train),as.factor(s.sample.train.class),
+                    kernel = "radial",
+                    ranges = ranges_radial
+                    )
+
+tune.out.radial$best.parameters
+tune.out.radial$best.performance
+```
+
+
+
+
+#### Polynomial Kernal
+```{r eval=FALSE}
+# RBF kernel
+ranges_poly <- list(coef0 = 10^(-1:1),
+                 gamma = 10^(-1:1),
+                 degree = c(2)
+                 )
+tune.out.poly <- e1071::tune(svm,as.matrix(s.sample.train),as.factor(s.sample.train.class),
+                 ranges = ranges_poly)
+
+
+tune.out.poly$best.parameters
+tune.out.poly$best.performance
+```
+
+
+```{r eval=FALSE, include=FALSE}
+# linear kernel
+ranges_linear <- list(cost = 10^(1:3))
+tune.out.linear <- e1071::tune(svm,as.matrix(s.sample.train),as.factor(s.sample.train.class),
+                 ranges = ranges_linear)
+
+tune.out.linear$best.parameters
+tune.out.linear$best.performance
+```
+
+### Prediction
+
+Comparing the above svm with tree different kernels, we choose polynomial kernel to make prediction in terms of prediction accuracy.
+```{r}
+svm.poly.pred <- svm(x=s.sample.train,y=as.factor(s.sample.train.class),scale = F,
+                    kernel = "polynomial",
+                    coef0 = 10, 
+                    gamma = 0.1,
+                    degree = 3
+                    )
+# train error
+svm.train.err <- mean(predict(svm.poly.pred,newdata = s.sample.train) !=s.sample.train.class);svm.train.err
+# test error
+
+svm.pred.err <- mean(predict(svm.poly.pred,newdata = s.sample.test) !=s.sample.test.class);svm.pred.err
+```
+
+### Condusion Matrix
+```{r}
+svm.cm <- caret::confusionMatrix(predict(svm.poly.pred,newdata = s.sample.test),as.factor(s.sample.test.class));svm.cm
+```
+
+```{r,echo=F}
+svm.res <- c(svm.train.err,svm.pred.err)
+```
+
+
+## 4.5 Decision Tree
+
+### Definition
+
+A Decision tree is a flowchart like tree structure, where each internal node denotes a test on an attribute, each branch represents an outcome of the test, and each leaf node holds a class label. 
+
+#### Advantages
+It does not make any assumptions for the input data.\
+Missing values does not effect the process of building a tree.\
+The tree model is easy to interpret.\
+It has easy model interpretability and can even be visualized.
+
+#### Limitations
+A little change in the training data will result completely different tree models.\
+Decision trees tend to overfit the data.
+
+
+
+### Apply Decision Tree 
+
+#### Sampling
+Take 20% data for testing, 80% for 5 cross validation tuning and training.
+```{r}
+set.seed(2068)
+# sampling
+number_test <- floor(dim(beans)[1]/5)
+index.list <- 1:dim(beans)[1]
+sample.index.test <- sample(index.list,number_test)
+sample.index.train <- index.list[-sample.index.test]
+sample.index.train <- sample(sample.index.train,length(sample.index.train))
+
+tree.sample.test <- beans[sample.index.test,]
+tree.sample.train <- beans[sample.index.train,]
+```
+
+Build a function to conduct k fold cross validation by using decision tree.
+```{r}
+tree_cv_err <- function(x,cl,k,tree.controls,split){
+  # x : training data
+  # cl : labels
+  # k : number of folds
+  n <- dim(x)[1]
+  # runs 
+  runs <- n %/% k
+  rem <- n %% k
+  
+  preds <- c()
+  
+  # calculate each part
+  for (i in 1:k) {
+    
+  # test sub index
+  s.low <- (i-1)*runs + 1
+  s.high <- i*runs
+  # plus remainder in last run
+  if(i==k){
+    s.high <- i*runs + rem
+  }
+  
+  # test set
+  test.i <- x[s.low:s.high,]
+  # train set
+  train.i <- x[ -s.low:-s.high, ]
+  # train label
+  train.lab.i <- cl[-s.low:-s.high]
+  
+  tree1 <- tree(as.factor(train.lab.i) ~ ., data = train.i, split=split,control = tree.controls)
+  
+   # compute the test error
+  test_pred1 <- predict(tree1, test.i, type="class")
+  preds <- append(preds,test_pred1)
+  }
+  return(cv.err = mean(preds != cl))
+}
+```
+
+
+### Tuning 
+Tune the parameters in tree.control in terms of prediction accuracy.\
+There are two main parameters we need to tune here. The mincut controls the minimum numbers of  observations to flow into a child node. The mindev controls the deviance between a root and its child node. It can be used to stop the node split.
+```{r}
+# tune parameter minicuts using devicnace split
+mincuts <- c(5,10,20,30,40,50,60)
+mindev <- 10^(-1:-5)
+nobs <- dim(tree.sample.train)[1]
+cv.errs <- c()
+for(i in mincuts){
+  for(mid in mindev){
+      cv.err <- tree_cv_err(tree.sample.train[,-17],tree.sample.train[,17],5,
+                           tree.control(
+                             nobs = nobs,
+                             mincut = i,
+                             mindev = mid),
+                           split="deviance"
+                           )
+      cv.errs <- append(cv.errs,cv.err)
+  }
+}
+which.min(cv.errs);cv.errs[which.min(cv.errs)]
+```
+
+The best parameters obtained according to the above cross validation is mincuts=10,mindev=0.0001.
+
+### Prediction
+```{r}
+set.seed(1500)
+# best parameter mincut = 10, mindev = 0.0001
+
+tree.pred <- tree(as.factor(Class) ~ ., data = tree.sample.train, split="deviance",
+              control = tree.control(
+                nobs = dim(tree.sample.train)[1],
+                mincut = 10,
+                mindev = 0.0001))
+
+# training error
+tree.train.pred <- predict(tree.pred,tree.sample.train[,-17],type = "class")
+tree.train.err <- mean(tree.train.pred != tree.sample.train[,17]);tree.train.err
+
+# test error
+tree.test.pred <- predict(tree.pred,tree.sample.test[,-17],type = "class")
+tree.test.err <- mean(tree.test.pred != tree.sample.test[,17]);tree.test.err
+```
+
+The training error is 0.05758 and the test error is 0.09478.
+
+### Confusion Matrix
+```{r}
+tree.cm <- caret::confusionMatrix(tree.test.pred,as.factor(tree.sample.test[,17]));tree.cm
+```
+
+```{r,echo=F}
+tree.res <- c(tree.train.err,tree.test.err)
+```
+
+
+## 4.6 Random Forest
+
+### Definition
+
+Random forest is an ensemble learning method for classification, regression and other tasks that operates by constructing a multitude of decision trees at training time.For classification tasks, the output of the random forest is the class selected by most trees.\
+It uses bootstrap as a resampling method. As the number of observations get larger, the samples selected take a portion about 63.2%.
+
+#### Advantages
+It has the advantages of decision tree and meanwhile it reduces the variance.
+It can handle very large data set.
+
+
+#### Limitations
+
+```{r}
+set.seed(4021)
+# sampling
+number_test <- floor(dim(beans)[1]/5)
+index.list <- 1:dim(beans)[1]
+sample.index.test <- sample(index.list,number_test)
+sample.index.train <- index.list[-sample.index.test]
+sample.index.train <- sample(sample.index.train,length(sample.index.train))
+
+rf.sample.test <- beans[sample.index.test,]
+rf.sample.train <- beans[sample.index.train,]
+```
+
+### Apply Random Froest
+Give the random forest 2000 for the number of trees.
+```{r}
+set.seed(402)
+rf.sample.train <- beans
+rf.sample.train$Class <- factor(rf.sample.train$Class)
+rf.model <- randomForest(formula = Class ~ ., data = rf.sample.train,ntree = 500,importance = T)
+```
+
+### Prediction
+```{r}
+rf.model
+```
+
+Test error: 7.45%.
+
+```{r,echo=F}
+randomforest.res <- c(0,0.07449606)
+```
+
+# 5 Conclusion
+
+```{r}
+results <- data.frame(rbind(lda.res,logisticregression.res,knn.res,svm.res,tree.res,randomforest.res))
+results <- cbind(results, 1- unlist(results[,2]))
+colnames(results) <- c("train error","test error","accuracy")
+rownames(results) <- c("LDA","Logistic Regression" ,"KNN","SVM","Decision Tree","Random Forest")
+kable(results)
+```
+
+
+By applying six machine learning methods, the goal of classifying seven mixed types of beans is now achieved at an accuracy rate around 93%.\
+\newline
+Before we started applying any methods, we first checked the structure of the data set. The data set has 13611 x 16 samples with 7 classes. All the predictors are numerical and are proved to be significant in similar grain classification problems like rice and wheat grains. Although I did not try any dimension reduction methods, it is still worth trying to use PCA or LDA and so on to simplify the data set.\
+\newline
+In data engineering section, I checked the normality of a feature and it turned out it did not satisfy the normal distribution. I also checked the distribution of each feature given certain class and they did not have normal distribution either.\
+\newline
+We already knew the assumption of LDA that the class pdf is normal distribution was not met. After applying linear discriminant analysis (LDA), six linear functions were obtained and the first three functions covered 86.2%, percentage separation. The error rate is not ideal comparing to others methods' results mainly because the assumption of LDA was not met.\
+\newline
+The logistic regression does not make strict assumptions like LDA and the result appeared to be better than that of LDA.\
+\newline
+When applying K nearest neighbor, I also wrote a function applying weighted KNN method in addition to unweighted KNN. However, after taking into account the distance in doing majority vote, the improvement is not obvious. Further study could be put on methods that can improve KNN performance for imbalanced data set and it is suggested to try different different metrics.\
+\newline
+In conclusion,the SVM model had the best performance. Therefore, we choose it as the best method for the dry beans classification problem.
+
+
+
+
+
+
+
+
+# 6 References
+
+1: X. Chen, Y. Xun, W. Li, J. Zhang
+Combining discriminant analysis and neural networks for corn variety identification
+Comput. Electron. Agric., 71 (2010), pp. S48-S53, 10.1016/j.compag.2009.09.003
+
+2: Murat Koklu, Ilker Ali Ozkan,Multiclass classification of dry beans using computer vision and machine learning techniques,Computers and Electronics in Agriculture,Volume 174,2020,105507,ISSN 0168-1699.
+
+3: Symons, Stephen & Fulcher, R.. (1988). Determination of wheat kernel morphological variation by digital image analysis: I. Variation in Eastern Canadian milling quality wheats. Journal of Cereal Science. 8. 211-218. 10.1016/S0733-5210(88)80032-8. 
+
+4: Jigang Xie∗, Zhengding Qiu (2006), The effect of imbalanced data sets on LDA:A theoretical
+and empirical analysis, Pattern Recognition 40 (2007) 557 – 562
+
