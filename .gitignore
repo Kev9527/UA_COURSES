@@ -10,3 +10,6 @@ facebook_large/
 wine_classification.pdf
 
 house-prices-advanced-regression-techniques/
+
+*.csv
+
