@@ -1,0 +1,106 @@
+---
+title: "571A_notes"
+author: "Kaiwen Liu"
+date: "6/1/2022"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    highlight: tango
+    theme: united
+---
+
+
+
+# CH1 Linear Regression with One Predictor Variable
+
+
+## SLR
+
+
+
+$$
+Y_i = \beta_0 + \beta_1X_i + \epsilon_i
+$$
+
+Assumptions: 
+
+$\beta_0+ \beta_1X_i$  fixed with $X_i$ known and $\beta_0, \beta_1$ unknown.
+
+$\epsilon_i$  random error term
+
+$E[\epsilon_i] = 0$ for all i
+
+$\sigma^2[\epsilon_i] = \sigma^2$
+
+$\sigma[\epsilon_i,\epsilon_j] = 0$.
+
+
+
+
+
+### Least Square
+
+#### Normal Equations
+
+
+$$
+\begin{aligned}
+\sum{Y_i} &= nb_0 + b_1\sum{X_i}
+\\
+\sum{X_iY_i} &= b_0\sum{X_i} +  b_1\sum{X_i^2}
+\end{aligned}
+$$
+
+
+
+#### LS 
+<p float="left">
+  <img style="width:40%" src="/Users/kaiwenliu/Projects/UA_COURSES/STAT571A/pics/Ch1.1.png" />
+  <img style="width:40%" src="/Users/kaiwenliu/Projects/UA_COURSES/STAT571A/pics/Ch1.2.png" />
+</p>
+
+
+
+### LS fit Consequences
+<p float="left">
+  <img style="width:50%" src="/Users/kaiwenliu/Projects/UA_COURSES/STAT571A/pics/Ch1.3.png" />
+</p>
+
+#### SSE (Sum of Squared Errors)
+**df = n-2**
+$$
+SSE = \sum^{n}_{i=1}(Y_i-\hat{Y_i})^2 = \sum^{n}_{i=1}{e_i^2}
+$$
+
+#### MSE (Mean Squared Error)
+**E[MSE] = \sigma^2$**
+
+MSE = SSE/(n-2)
+
+
+# Ch2 Inferences in Regression and Correlation Analysis
+
+## Distribution of the slope $beta_1$
+Use b1 to estimate $\beta_1$.\
+b1 is a linear combination of $Y_i$.\
+We can have the distribution of b1 since $Y_i$ is normally distributed.\
+<p float="left">
+  <img style="width:50%" src="/Users/kaiwenliu/Projects/UA_COURSES/STAT571A/pics/Ch2.1.png" />
+  <img style="width:25%" src="/Users/kaiwenliu/Projects/UA_COURSES/STAT571A/pics/Ch2.2.png" />
+</p>
+\
+Use MSE to estimate $\sigma^2$.
+
+
+## Find 95% Confidence Inteveral on $\beta_1$
+```{r}
+# data
+x <- c(23,34,45,78,55)
+y <- c(24,67,78,34,46)
+conf.lm <- lm(y~x)
+confint(conf.lm)
+
+```
+
